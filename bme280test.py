@@ -1,3 +1,7 @@
+'''
+Attribution:
+Richard Hull, https://github.com/rm-hull/bme280
+'''
 import smbus2
 import bme280
 
