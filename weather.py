@@ -17,9 +17,12 @@ from awsiot import mqtt_connection_builder
 I2C_PORT = 1
 BME280_ADDRESS = 0x76
 
+MQTT_TOPIC_FORMAT = "dt/weather/{location}/{client_id}"
+
 def init_arg_parser():
     parser = argparse.ArgumentParser(description="Periodically measure some weather parameters and send " +
-                                     "them to cloud services using MQTT.")
+                                     "them to cloud services using MQTT. Uses MQTT topic of form \"" +
+                                     MQTT_TOPIC_FORMAT + "\".")
 
     # AWS specific
     parser.add_argument('--endpoint', required=True, help="Your AWS IoT custom endpoint, not including a port. " +
@@ -29,13 +32,15 @@ def init_arg_parser():
     parser.add_argument('--root-ca', help="File path to root certificate authority, in PEM format. " +
                         "Necessary if MQTT server uses a certificate that's not already in " +
                         "your trust store.")
-    parser.add_argument('--client-id', default=str(uuid4()), help="Client ID for MQTT connection.")
     parser.add_argument('--verbosity', choices=[x.name for x in io.LogLevel], default=io.LogLevel.NoLogs.name,
                         help="Logging level.")
     parser.add_argument('--log-file', default="stderr",
                         help="Log file location. Use 'stdout' or 'stderr' for stdout or stderr.")
 
     # General
+    parser.add_argument('--location', default="earth", help="Physical location of the weather sensor. This is used as " +
+                        "part of the MQTT topic.")
+    parser.add_argument('--client-id', default=str(uuid4()), help="Client ID for MQTT connection.")
     parser.add_argument('--msg-freq', default=5, help="Message frequency. Number of seconds to wait between measurements.")
 
     return parser
@@ -43,15 +48,14 @@ def init_arg_parser():
 
 # AWS specifics START
 class AWSCloud():
-    '''
-    Class for all AWS Cloud specific functionality.
-    '''
+    '''Class for all AWS Cloud specific functionality.'''
     # TODO: Vaihda print-kutsut oikeaksi lokitukseksi.
     def __init__(self, args):
         self.cert = args.cert
         self.client_id = args.client_id
         self.endpoint = args.endpoint
         self.key = args.key
+        self.location = args.location
         self.log_file = args.log_file
         self.root_ca = args.root_ca
         self.verbosity = args.verbosity
@@ -80,16 +84,12 @@ class AWSCloud():
 
 
     def on_connection_interrupted(self, connection, error, **kwargs):
-        '''
-        Callback, when connection is accidentally lost.
-        '''
+        '''Callback, when connection is accidentally lost.'''
         print("Connection interrupted. error: {}".format(error))
 
 
     def on_connection_resumed(self, connection, return_code, session_present, **kwargs):
-        '''
-        Callback, when an interrupted connection is re-established.
-        '''
+        '''Callback, when an interrupted connection is re-established.'''
         print("Connection resumed. return_code: {} session_present: {}".format(return_code, session_present))
 
 
@@ -127,43 +127,47 @@ def init_sensors():
 
 def print_data(data):
     # the compensated_reading class has the following attributes
-    print(data.id)
-    print(data.timestamp)
-    print('{} °C'.format(data.temperature))
-    print('{} hPa'.format(data.pressure))
-    print('{} %rH'.format(data.humidity))
+    # print(data.id)
+    # print(data.timestamp)
+    # print('{} °C'.format(data.temperature))
+    # print('{} hPa'.format(data.pressure))
+    # print('{} %rH'.format(data.humidity))
     
     # there is a handy string representation too
     print(data)
-    print(temperature_to_json(data))
-    print(pressure_to_json(data))
-    print(humidity_to_json(data))
+    print(to_json(data))
 
 
-def temperature_to_json(data):
-    return to_json(data.timestamp, data.temperature, '°C')
-
-
-def pressure_to_json(data):
-    return to_json(data.timestamp, data.pressure, 'hPa')
-
-
-def humidity_to_json(data):
-    return to_json(data.timestamp, data.humidity, '%rH')
-
-
-def to_json(timestamp, value, unit):
+def to_json(bme280data):
+    '''Formats the given data into a JSON string.'''
     return json.dumps(
         {
-            "timestamp": timestamp.astimezone().isoformat(),
-            "value": value,
-            "unit": unit
+            "timestamp": bme280data.timestamp.astimezone().isoformat(),
+            "temperature": {
+                "value": bme280data.temperature,
+                "unit": '°C'
+            },
+            "pressure": {
+                "value": bme280data.pressure,
+                "unit": 'hPa'
+            },
+            "humidity": {
+                "value": bme280data.humidity,
+                "unit": '%rH'
+            }
         }
     )
 
 
 def send_data_to_aws(aws, data):
-    aws.send_message("sensor/temperature", temperature_to_json(data))
+    '''Sends the given data to AWS using the given AWSClient. The AWSClient
+    should have connection open.
+
+    Data is sent to a MQTT topic of form
+    "dt/weather/<sensor-location>/<sensor-client-id>"
+
+    '''
+    aws.send_message(MQTT_TOPIC_FORMAT.format(location=aws.location, client_id=aws.client_id), to_json(data))
 
 
 def main(args):
