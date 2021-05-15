@@ -47,7 +47,7 @@ def init_arg_parser():
 
 
 # AWS specifics START
-class AWSCloud():
+class AWSClient():
     '''Class for all AWS Cloud specific functionality.'''
     # TODO: Vaihda print-kutsut oikeaksi lokitukseksi.
     def __init__(self, args):
@@ -142,17 +142,18 @@ def to_json(bme280data):
     '''Formats the given data into a JSON string.'''
     return json.dumps(
         {
-            "timestamp": bme280data.timestamp.astimezone().isoformat(),
+            # "timestamp": bme280data.timestamp.astimezone().isoformat(), # Human readable timestamp
+            "timestamp": round(bme280data.timestamp.astimezone().timestamp() * 1000), # UTC timestamp in milliseconds
             "temperature": {
-                "value": bme280data.temperature,
+                "value": round(bme280data.temperature, 2), # Resolution: 0.01°C
                 "unit": '°C'
             },
             "pressure": {
-                "value": bme280data.pressure,
+                "value": round(bme280data.pressure, 2), # Resolution: 0.18Pa
                 "unit": 'hPa'
             },
             "humidity": {
-                "value": bme280data.humidity,
+                "value": round(bme280data.humidity, 3), # Resolution: 0.008%
                 "unit": '%rH'
             }
         }
@@ -174,7 +175,7 @@ def main(args):
     print("Args:", args)
     bus, calibration_params = init_sensors()
 
-    aws = AWSCloud(args)
+    aws = AWSClient(args)
     aws.connect()
 
     try:
