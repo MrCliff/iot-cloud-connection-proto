@@ -125,7 +125,7 @@ def init_sensors():
     return bus, calibration_params
 
 
-def print_data(data):
+def print_data(args, data):
     # the compensated_reading class has the following attributes
     # print(data.id)
     # print(data.timestamp)
@@ -135,13 +135,14 @@ def print_data(data):
     
     # there is a handy string representation too
     print(data)
-    print(to_json(data))
+    print(to_json(args.client_id, data))
 
 
-def to_json(bme280data):
+def to_json(client_id, bme280data):
     '''Formats the given data into a JSON string.'''
     return json.dumps(
         {
+            "device_id": client_id,
             # "timestamp": bme280data.timestamp.astimezone().isoformat(), # Human readable timestamp
             "timestamp": round(bme280data.timestamp.astimezone().timestamp() * 1000), # UTC timestamp in milliseconds
             "temperature": {
@@ -168,7 +169,7 @@ def send_data_to_aws(aws, data):
     "dt/weather/<sensor-location>/<sensor-client-id>"
 
     '''
-    aws.send_message(MQTT_TOPIC_FORMAT.format(location=aws.location, client_id=aws.client_id), to_json(data))
+    aws.send_message(MQTT_TOPIC_FORMAT.format(location=aws.location, client_id=aws.client_id), to_json(aws.client_id, data))
 
 
 def main(args):
@@ -181,7 +182,7 @@ def main(args):
     try:
         while True:
             data = bme280.sample(bus, BME280_ADDRESS, calibration_params)
-            print_data(data)
+            print_data(args, data)
             send_data_to_aws(aws, data)
             
             time.sleep(args.msg_freq)
