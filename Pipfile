@@ -6,6 +6,7 @@ name = "pypi"
 [packages]
 awsiotsdk = "*"
 "rpi.bme280" = "*"
+azure-iot-device = "*"
 
 [dev-packages]
 
