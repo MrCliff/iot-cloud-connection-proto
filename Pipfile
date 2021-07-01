@@ -7,6 +7,9 @@ name = "pypi"
 awsiotsdk = "*"
 "rpi.bme280" = "*"
 azure-iot-device = "*"
+pyjwt = "*"
+paho-mqtt = "*"
+cryptography = "*"
 
 [dev-packages]
 
