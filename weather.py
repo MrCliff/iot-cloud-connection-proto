@@ -69,6 +69,7 @@ def init_arg_parser():
     parser.add_argument("--gcp-key", required=True, help="File path to your private key to use with GCP, in PEM format.")
     parser.add_argument("--gcp-key-algorithm", choices=("RS256", "ES256"), required=True, help="Format of the private keys to use with GCP.")
     parser.add_argument("--gcp-ca-certs", required=True, help="File path to GCP CA root (from https://pki.google.com/roots.pem)")
+    parser.add_argument("--gcp-jwt-expires-minutes", default=20, type=int, help="Expiration time, in minutes, for JWT tokens.")
     parser.add_argument("--gcp-hostname", default="mqtt.googleapis.com", help="GCP Cloud IoT Core hostname.")
     parser.add_argument("--gcp-port", choices=(8883, 443), default=8883, type=int, help="GCP Cloud IoT Core port.")
 
@@ -205,6 +206,7 @@ class GCPClient():
         self.private_key_file = args.gcp_key
         self.algorithm        = args.gcp_key_algorithm
         self.ca_certs         = args.gcp_ca_certs
+        self.jwt_exp_minutes  = args.gcp_jwt_expires_minutes
         self.hostname         = args.gcp_hostname
         self.port             = args.gcp_port
 
@@ -220,6 +222,7 @@ class GCPClient():
 
         self.client.on_connect = self.on_connect
         self.client.on_disconnect = self.on_disconnect
+
         
     def connect(self):
         print("Connecting to host {}:{} with client ID '{}'...".format(self.hostname, self.port, self.client_id))
@@ -227,15 +230,12 @@ class GCPClient():
         # With Google Cloud IoT Core, the username field is ignored, and the
         # password field is used to transmit a JWT to authorize the device.
         self.client.username_pw_set(
-            username="unused", password=self.create_jwt(self.project_id, self.private_key_file, self.algorithm)
+            username="unused", password=self.create_jwt()
         )
 
         # Connect to the Google MQTT bridge.
         self.client.connect(self.hostname, self.port)
         self.client.loop_start()
-        
-        time.sleep(1)
-        # TODO: implement JWT renewal!!!
 
 
     def disconnect(self):
@@ -243,20 +243,37 @@ class GCPClient():
         self.client.disconnect()
         self.client.loop_stop()
 
+
+    def reconnect(self):
+        self.disconnect()
+        self.connect()
+
     
     def send_message(self, message):
+        self.refresh_jwt_if_necessary()
+
         print("Sending message to GCP: {}".format(message))
         self.client.publish(self.mqtt_topic, message, qos=1)
 
 
     ### Internal methods ###
 
+    def refresh_jwt_if_necessary(self):
+        seconds_since_issue = (datetime.utcnow() - self.jwt_iat).seconds
+        if seconds_since_issue > 60 * self.jwt_exp_minutes:
+            print("Refreshing JWT after {}s".format(seconds_since_issue))
+            self.reconnect()
+
+
     def on_connect(self, unused_client, unused_userdata, unused_flags, rc):
         """Callback for when a device connects."""
         print("on_connect", paho_mqtt.connack_string(rc))
         if rc == 0:
             print("Connected to GCP!")
-        
+        elif rc == 4:  # Bad (username or) password -> regenerate JWT
+            print("Invalid JWT, regenerating JWT and reconnecting.")
+            self.connect()
+
 
     def on_disconnect(self, unused_client, unused_userdata, rc):
         """Paho callback for when a device disconnects."""
@@ -270,41 +287,37 @@ class GCPClient():
         return "{}: {}".format(rc, paho_mqtt.error_string(rc))
 
 
-    def create_jwt(self, project_id, private_key_file, algorithm):
+    def create_jwt(self):
         """Creates a JWT (https://jwt.io) to establish an MQTT connection.
-        Args:
-         project_id: The cloud project ID this device belongs to
-         private_key_file: A path to a file containing either an RSA256 or
-                 ES256 private key.
-         algorithm: The encryption algorithm to use. Either 'RS256' or 'ES256'
         Returns:
-            A JWT generated from the given project_id and private key, which
-            expires in 20 minutes. After 20 minutes, your client will be
-            disconnected, and a new JWT will have to be generated.
+            A JWT generated from the self.project_id and self.private_key_file,
+            which expires in self.jwt_exp_minutes minutes.
         Raises:
-            ValueError: If the private_key_file does not contain a known key.
+            ValueError: If the self.private_key_file does not contain a known
+            key.
         """
         
         token = {
             # The time that the token was issued at
             "iat": datetime.utcnow(),
             # The time the token expires.
-            "exp": datetime.utcnow() + timedelta(minutes=1), #20), TODO: Change back to 20 mins after JWT renewal is implemented
+            "exp": datetime.utcnow() + timedelta(minutes=self.jwt_exp_minutes),
             # The audience field should always be set to the GCP project id.
-            "aud": project_id,
+            "aud": self.project_id,
         }
+        self.jwt_iat = token["iat"]
     
         # Read the private key file.
-        with open(private_key_file, "r") as f:
+        with open(self.private_key_file, "r") as f:
             private_key = f.read()
             
             print(
                 "Creating JWT using {} from private key file {}".format(
-                    algorithm, private_key_file
+                    self.algorithm, self.private_key_file
                 )
             )
             
-            return jwt.encode(token, private_key, algorithm=algorithm)
+            return jwt.encode(token, private_key, algorithm=self.algorithm)
 # GCP specifics END
 
 def init_sensors():
@@ -393,7 +406,7 @@ def main(args):
     try:
         while True:
             data = bme280.sample(bus, BME280_ADDRESS, calibration_params)
-            print_data(args, data)
+            # print_data(args, data)
             # send_data_to_aws(args, aws, data)
             # send_data_to_azure(args, azure, data)
             send_data_to_gcp(args, gcp, data)
