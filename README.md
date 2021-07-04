@@ -4,7 +4,7 @@ This project is a prototype script for testing IoT features of different
 popular PaaS cloud services. The script collects data from BME280
 temperature, humidity and air pressure sensor and sends the data
 periodically to three cloud services using their IoT features. The cloud
-services are *Amazon AWS*, *Microsoft Azure* and *Google Cloud*.
+services are *Amazon AWS*, *Microsoft Azure* and *Google Cloud Platform*.
 
 This prototype is part of my Master's thesis.
 
