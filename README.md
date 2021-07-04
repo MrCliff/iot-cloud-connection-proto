@@ -9,6 +9,13 @@ services are *Amazon AWS*, *Microsoft Azure* and *Google Cloud*.
 This prototype is part of my Master's thesis.
 
 
+## Installation
+
+The project uses [pipenv](https://pipenv.pypa.io/en/latest/). For
+installation you need to run `pipenv install` in the root directory of
+this project.
+
+
 ## Running the script
 
 Example command for running the script is located in

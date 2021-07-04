@@ -2,7 +2,7 @@
 
 export AZURE_DEVICE_PRIMARY_KEY="<Symmetric IoT device authentication key from Azure>"
 
-./weather.py \
+pipenv run python weather.py \
     --aws-endpoint <aws iot endpoint domain - AWS IoT/Settings/Endpoint> \
     --aws-client-id <aws iot client id of the device> \
     --aws-cert ~/certs/aws/device.pem.crt \
