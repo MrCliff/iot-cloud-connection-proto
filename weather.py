@@ -43,9 +43,15 @@ def init_arg_parser():
     parser = argparse.ArgumentParser(description="Periodically measure some weather parameters and send " +
                                      "them to different cloud services using MQTT.")
 
+    # General
+    parser.add_argument("--cloud-provider", choices=("aws", "azure", "gcp", "all"), default="all", help="Cloud provider to which to send data.")
+    parser.add_argument("--location", default="earth", help="Physical location of the weather sensor.")
+    parser.add_argument("--msg-freq", default=5, help="Message frequency. Number of seconds to wait between measurements.")
+
     # AWS specific
     parser.add_argument("--aws-endpoint", required=True, help="Your AWS IoT custom endpoint, not including a port. " +
                         "Ex: \"abcd123456wxyz-ats.iot.eu-west-1.amazonaws.com\"")
+    parser.add_argument("--aws-client-id", default=str(uuid4()), help="Client ID for MQTT connection.")
     parser.add_argument("--aws-cert", required=True, help="File path to your client certificate to use with AWS, in PEM format.")
     parser.add_argument("--aws-key", required=True, help="File path to your private key to use with AWS, in PEM format.")
     parser.add_argument("--aws-root-ca", help="File path to AWS root certificate authority, in PEM format. " +
@@ -55,7 +61,6 @@ def init_arg_parser():
                         help="Logging level.")
     parser.add_argument("--aws-log-file", default="stderr",
                         help="Log file location. Use 'stdout' or 'stderr' for stdout or stderr.")
-    parser.add_argument("--aws-client-id", default=str(uuid4()), help="Client ID for MQTT connection.")
 
     # Azure specific
     parser.add_argument("--azure-iot-hub-name", required=True, help="Name of the Azure IoT Hub to which connect.")
@@ -68,14 +73,10 @@ def init_arg_parser():
     parser.add_argument("--gcp-device-id", required=True, help="GCP Cloud IoT Core device ID.")
     parser.add_argument("--gcp-key", required=True, help="File path to your private key to use with GCP, in PEM format.")
     parser.add_argument("--gcp-key-algorithm", choices=("RS256", "ES256"), required=True, help="Format of the private keys to use with GCP.")
-    parser.add_argument("--gcp-ca-certs", required=True, help="File path to GCP CA root (from https://pki.google.com/roots.pem)")
+    parser.add_argument("--gcp-root-ca", required=True, help="File path to GCP root CA (from https://pki.google.com/roots.pem)")
     parser.add_argument("--gcp-jwt-expires-minutes", default=20, type=int, help="Expiration time, in minutes, for JWT tokens.")
     parser.add_argument("--gcp-hostname", default="mqtt.googleapis.com", help="GCP Cloud IoT Core hostname.")
     parser.add_argument("--gcp-port", choices=(8883, 443), default=8883, type=int, help="GCP Cloud IoT Core port.")
-
-    # General
-    parser.add_argument("--location", default="earth", help="Physical location of the weather sensor.")
-    parser.add_argument("--msg-freq", default=5, help="Message frequency. Number of seconds to wait between measurements.")
 
     return parser
 
@@ -83,7 +84,7 @@ def init_arg_parser():
 # AWS specifics START
 class AWSClient():
     """Class for all AWS Cloud specific functionality."""
-    # TODO: Vaihda print-kutsut oikeaksi lokitukseksi.
+    # TODO: Change print calls to actual logging.
     def __init__(self, args):
         self.cert = args.aws_cert
         self.client_id = args.aws_client_id
@@ -143,7 +144,7 @@ class AWSClient():
 
 
     def send_message(self, topic, message):
-        print("Publishing message to topic '{}': {}".format(topic, message))
+        print("Publishing message to AWS in topic '{}': {}".format(topic, message))
         self.mqtt_connection.publish(
             topic=topic,
             payload=message,
@@ -153,7 +154,7 @@ class AWSClient():
 # Azure specifics START
 class AzureClient():
     """Class for all Azure Cloud specific functionality."""
-    # TODO: Vaihda print-kutsut oikeaksi lokitukseksi.
+    # TODO: Change print calls to actual logging.
     def __init__(self, args):
         # The device connection string to authenticate the device with your IoT hub.
         # Using the Azure CLI:
@@ -197,7 +198,7 @@ class AzureClient():
 # GCP specifics START
 class GCPClient():
     """Class for all Google Cloud Platform specific functionality."""
-    # TODO: Vaihda print-kutsut oikeaksi lokitukseksi.
+    # TODO: Change print calls to actual logging.
     def __init__(self, args):
         self.project_id       = args.gcp_project_id
         self.cloud_region     = args.gcp_cloud_region
@@ -205,7 +206,7 @@ class GCPClient():
         self.device_id        = args.gcp_device_id
         self.private_key_file = args.gcp_key
         self.algorithm        = args.gcp_key_algorithm
-        self.ca_certs         = args.gcp_ca_certs
+        self.ca_certs         = args.gcp_root_ca
         self.jwt_exp_minutes  = args.gcp_jwt_expires_minutes
         self.hostname         = args.gcp_hostname
         self.port             = args.gcp_port
@@ -328,19 +329,11 @@ def init_sensors():
 
 
 def print_data(args, data):
-    # the compensated_reading class has the following attributes
-    # print(data.id)
-    # print(data.timestamp)
-    # print('{} °C'.format(data.temperature))
-    # print('{} hPa'.format(data.pressure))
-    # print('{} %rH'.format(data.humidity))
-    
-    # there is a handy string representation too
     print(data)
-    # print(to_json(args.client_id, data))
+    # print(to_json(args.client_id, args.location, data))
 
 
-def to_json(device_id, bme280data):
+def to_json(device_id, location, bme280data):
     """Formats the given data into a JSON string."""
     utc_timestamp = round(bme280data.timestamp.astimezone().timestamp() * 1000) # UTC timestamp in milliseconds
     return json.dumps(
@@ -349,6 +342,7 @@ def to_json(device_id, bme280data):
             "device_id": device_id,   # Partition key for AWS and Azure
             # "timestamp": bme280data.timestamp.astimezone().isoformat(), # Human readable timestamp
             "timestamp": utc_timestamp, # Sort key for AWS
+            "location": location,
             "temperature": {
                 "value": round(bme280data.temperature, 2), # Resolution: 0.01°C
                 "unit": "°C"
@@ -371,53 +365,61 @@ def send_data_to_aws(args, aws, data):
 
     Data is sent to a MQTT topic of form
     "dt/weather/<sensor-location>/<sensor-client-id>"
-
     """
-    aws.send_message(AWS_MQTT_TOPIC_FORMAT.format(location=args.location, client_id=aws.client_id), to_json(aws.client_id, data))
+    aws.send_message(AWS_MQTT_TOPIC_FORMAT.format(location=args.location, client_id=aws.client_id), to_json(aws.client_id, args.location, data))
 
 
 def send_data_to_azure(args, azure, data):
     """Sends the given data to Azure using the given AzureClient. The client
     should have connection open.
-
     """
-    azure.send_message({"location": args.location}, to_json(azure.device_id, data))
+    azure.send_message({"location": args.location}, to_json(azure.device_id, args.location, data))
 
 
 def send_data_to_gcp(args, gcp, data):
     """Sends the given data to GCP using the given GCPClient. The client
     should have connection open.
-
     """
-    gcp.send_message(to_json(gcp.device_id, data))
+    gcp.send_message(to_json(gcp.device_id, args.location, data))
 
 
 def main(args):
     print("Args:", args)
     bus, calibration_params = init_sensors()
 
-    aws = AWSClient(args)
-    aws.connect()
-    azure = AzureClient(args)
-    azure.connect()
-    gcp = GCPClient(args)
-    gcp.connect()
+    cloud = args.cloud_provider
+    
+    if cloud == "aws" or cloud == "all":
+        aws = AWSClient(args)
+        aws.connect()
+    if cloud == "azure" or cloud == "all":
+        azure = AzureClient(args)
+        azure.connect()
+    if cloud == "gcp" or cloud == "all":
+        gcp = GCPClient(args)
+        gcp.connect()
     
     try:
         while True:
             data = bme280.sample(bus, BME280_ADDRESS, calibration_params)
             # print_data(args, data)
-            # send_data_to_aws(args, aws, data)
-            # send_data_to_azure(args, azure, data)
-            send_data_to_gcp(args, gcp, data)
+            if cloud == "aws" or cloud == "all":
+                send_data_to_aws(args, aws, data)
+            if cloud == "azure" or cloud == "all":
+                send_data_to_azure(args, azure, data)
+            if cloud == "gcp" or cloud == "all":
+                send_data_to_gcp(args, gcp, data)
             
             time.sleep(args.msg_freq)
     except KeyboardInterrupt:
         print("Stopping...")
     finally:
-        aws.disconnect()
-        azure.disconnect()
-        gcp.disconnect()
+        if cloud == "aws" or cloud == "all":
+            aws.disconnect()
+        if cloud == "azure" or cloud == "all":
+            azure.disconnect()
+        if cloud == "gcp" or cloud == "all":
+            gcp.disconnect()
 
     print("Stopped")
 
