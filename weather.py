@@ -188,8 +188,6 @@ class AzureClient():
     def send_message(self, custom_properties, json_message):
         message = Message(json_message, content_encoding="utf-8", content_type="application/json")
         message.custom_properties.update(custom_properties)
-        # message.content_encoding = "utf-8"
-        # message.content_type = "application/json"
 
         print("Sending message to Azure: {}".format(message))
         self.client.send_message(message)
