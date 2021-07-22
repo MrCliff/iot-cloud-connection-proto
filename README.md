@@ -9,11 +9,18 @@ services are *Amazon AWS*, *Microsoft Azure* and *Google Cloud Platform*.
 This prototype is part of my Master's thesis.
 
 
+## Pre-requisites
+
+Ensure that the I2C kernel driver is enabled and that the necessary
+tools are installed by following the steps in [Pre-requisites of
+rm-hull/bme280 driver](https://github.com/rm-hull/bme280#pre-requisites).
+
+
 ## Installation
 
 The project uses [pipenv](https://pipenv.pypa.io/en/latest/). For
-installation you need to run `pipenv install` in the root directory of
-this project.
+dependency installation you need to run `pipenv install` in the root
+directory of this project.
 
 
 ## Running the script

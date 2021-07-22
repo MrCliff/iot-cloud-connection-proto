@@ -29,8 +29,8 @@ import paho.mqtt.client as paho_mqtt
 import jwt
 
 # General
-I2C_PORT = 1
-BME280_ADDRESS = 0x76
+DEFAULT_I2C_PORT = 1
+DEFAULT_BME280_ADDRESS = 0x76
 
 # AWS specific
 AWS_MQTT_TOPIC_FORMAT = "dt/weather/{location}/{client_id}"
@@ -47,6 +47,8 @@ def init_arg_parser():
     parser.add_argument("--cloud-provider", choices=("aws", "azure", "gcp", "all"), default="all", help="Cloud provider to which to send data.")
     parser.add_argument("--location", default="earth", help="Physical location of the weather sensor.")
     parser.add_argument("--msg-freq", default=5, help="Message frequency. Number of seconds to wait between measurements.")
+    parser.add_argument("--i2c-port", default=DEFAULT_I2C_PORT, type=int, help="The number of I2C port. Defaults to {}.".format(DEFAULT_I2C_PORT))
+    parser.add_argument("--bme280-address", default=DEFAULT_BME280_ADDRESS, type=lambda x: int(x,0), help="The I2C address of BME280 sensor in the I2C bus. Defaults to 0x{:02X}.".format(DEFAULT_BME280_ADDRESS))
 
     # AWS specific
     parser.add_argument("--aws-endpoint", required=True, help="Your AWS IoT custom endpoint, not including a port. " +
@@ -319,9 +321,9 @@ class GCPClient():
             return jwt.encode(token, private_key, algorithm=self.algorithm)
 # GCP specifics END
 
-def init_sensors():
-    bus = smbus2.SMBus(I2C_PORT)
-    calibration_params = bme280.load_calibration_params(bus, BME280_ADDRESS)
+def init_sensors(args):
+    bus = smbus2.SMBus(args.i2c_port)
+    calibration_params = bme280.load_calibration_params(bus, args.bme280_address)
 
     return bus, calibration_params
 
@@ -383,7 +385,7 @@ def send_data_to_gcp(args, gcp, data):
 
 def main(args):
     print("Args:", args)
-    bus, calibration_params = init_sensors()
+    bus, calibration_params = init_sensors(args)
 
     cloud = args.cloud_provider
     
@@ -399,7 +401,7 @@ def main(args):
     
     try:
         while True:
-            data = bme280.sample(bus, BME280_ADDRESS, calibration_params)
+            data = bme280.sample(bus, args.bme280_address, calibration_params)
             # print_data(args, data)
             if cloud == "aws" or cloud == "all":
                 send_data_to_aws(args, aws, data)
