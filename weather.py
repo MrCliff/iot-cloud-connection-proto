@@ -98,14 +98,9 @@ class AWSClient():
         
         io.init_logging(getattr(io.LogLevel, self.verbosity), self.log_file)
 
-        self.init_connection()
-
-
-    def init_connection(self):
         event_loop_group = io.EventLoopGroup(1)
         host_resolver = io.DefaultHostResolver(event_loop_group)
         client_bootstrap = io.ClientBootstrap(event_loop_group, host_resolver)
-
         self.mqtt_connection = mqtt_connection_builder.mtls_from_path(
             endpoint=self.endpoint,
             cert_filepath=self.cert,
@@ -117,16 +112,6 @@ class AWSClient():
             client_id=self.client_id,
             clean_session=False,
             keep_alive_secs=6)
-
-
-    def on_connection_interrupted(self, connection, error, **kwargs):
-        """Callback, when connection is accidentally lost."""
-        print("Connection interrupted. error: {}".format(error))
-
-
-    def on_connection_resumed(self, connection, return_code, session_present, **kwargs):
-        """Callback, when an interrupted connection is re-established."""
-        print("Connection resumed. return_code: {} session_present: {}".format(return_code, session_present))
 
 
     def connect(self):
@@ -151,6 +136,18 @@ class AWSClient():
             topic=topic,
             payload=message,
             qos=mqtt.QoS.AT_MOST_ONCE)
+
+
+    ### Internal methods ###
+
+    def on_connection_interrupted(self, connection, error, **kwargs):
+        """Callback, when connection is accidentally lost."""
+        print("Connection interrupted. error: {}".format(error))
+
+
+    def on_connection_resumed(self, connection, return_code, session_present, **kwargs):
+        """Callback, when an interrupted connection is re-established."""
+        print("Connection resumed. return_code: {} session_present: {}".format(return_code, session_present))
 # AWS specifics END
 
 # Azure specifics START
@@ -171,9 +168,9 @@ class AzureClient():
 
     def connect(self):
         print("Connecting to host {} with device ID '{}'...".format(self.hostname, self.device_id))
-        formatted_conn_str = self.AZURE_CONNECTION_STRING.format(iot_hub_name=self.iot_hub_name,
-                                                                 device_id=self.device_id,
-                                                                 primary_key=self.key)
+        # formatted_conn_str = self.AZURE_CONNECTION_STRING.format(iot_hub_name=self.iot_hub_name,
+        #                                                          device_id=self.device_id,
+        #                                                          primary_key=self.key)
         # self.client = IoTHubDeviceClient.create_from_connection_string(formatted_conn_str)
         self.client = IoTHubDeviceClient.create_from_symmetric_key(self.key,
                                                                    self.hostname,
@@ -384,7 +381,7 @@ def send_data_to_gcp(args, gcp, data):
 
 
 def main(args):
-    print("Args:", args)
+    # print("Args:", args)
     bus, calibration_params = init_sensors(args)
 
     cloud = args.cloud_provider
