@@ -5,6 +5,7 @@ import argparse
 import os
 import time
 from datetime import tzinfo, datetime, timedelta
+import asyncio
 import smbus2
 import bme280
 
@@ -20,7 +21,8 @@ from awsiot import mqtt_connection_builder
 # Azure specific
 # Python Device SDK for IoT Hub:
 # https://github.com/Azure/azure-iot-sdk-python
-from azure.iot.device import IoTHubDeviceClient, Message
+from azure.iot.device.aio import IoTHubDeviceClient
+from azure.iot.device import Message
 
 # GCP specific
 import ssl
@@ -165,9 +167,6 @@ class AzureClient():
         self.device_id = args.azure_device_id
         self.key = AZURE_DEVICE_PRIMARY_KEY
 
-
-    def connect(self):
-        print("Connecting to host {} with device ID '{}'...".format(self.hostname, self.device_id))
         # formatted_conn_str = self.AZURE_CONNECTION_STRING.format(iot_hub_name=self.iot_hub_name,
         #                                                          device_id=self.device_id,
         #                                                          primary_key=self.key)
@@ -175,21 +174,26 @@ class AzureClient():
         self.client = IoTHubDeviceClient.create_from_symmetric_key(self.key,
                                                                    self.hostname,
                                                                    self.device_id)
+
+
+    async def connect(self):
+        print("Connecting to host {} with device ID '{}'...".format(self.hostname, self.device_id))
+        await self.client.connect()
         print("Connected to Azure!")
 
 
-    def disconnect(self):
+    async def disconnect(self):
         print("Disconnecting from Azure...")
-        self.client.disconnect()
+        await self.client.disconnect()
         print("Disconnected from Azure!")
 
 
-    def send_message(self, custom_properties, json_message):
+    async def send_message(self, custom_properties, json_message):
         message = Message(json_message, content_encoding="utf-8", content_type="application/json")
         message.custom_properties.update(custom_properties)
 
         print("Sending message to Azure: {}".format(message))
-        self.client.send_message(message)
+        await self.client.send_message(message)
 # Azure specifics END
 
 # GCP specifics START
@@ -366,11 +370,11 @@ def send_data_to_aws(args, aws, data):
     aws.send_message(AWS_MQTT_TOPIC_FORMAT.format(location=args.location, client_id=aws.client_id), to_json(aws.client_id, args.location, data))
 
 
-def send_data_to_azure(args, azure, data):
+async def send_data_to_azure(args, azure, data):
     """Sends the given data to Azure using the given AzureClient. The client
     should have connection open.
     """
-    azure.send_message({"location": args.location}, to_json(azure.device_id, args.location, data))
+    await azure.send_message({"location": args.location}, to_json(azure.device_id, args.location, data))
 
 
 def send_data_to_gcp(args, gcp, data):
@@ -380,7 +384,7 @@ def send_data_to_gcp(args, gcp, data):
     gcp.send_message(to_json(gcp.device_id, args.location, data))
 
 
-def main(args):
+async def main(args):
     # print("Args:", args)
     bus, calibration_params = init_sensors(args)
 
@@ -391,7 +395,7 @@ def main(args):
         aws.connect()
     if cloud == "azure" or cloud == "all":
         azure = AzureClient(args)
-        azure.connect()
+        await azure.connect()
     if cloud == "gcp" or cloud == "all":
         gcp = GCPClient(args)
         gcp.connect()
@@ -403,7 +407,7 @@ def main(args):
             if cloud == "aws" or cloud == "all":
                 send_data_to_aws(args, aws, data)
             if cloud == "azure" or cloud == "all":
-                send_data_to_azure(args, azure, data)
+                await send_data_to_azure(args, azure, data)
             if cloud == "gcp" or cloud == "all":
                 send_data_to_gcp(args, gcp, data)
             
@@ -414,7 +418,7 @@ def main(args):
         if cloud == "aws" or cloud == "all":
             aws.disconnect()
         if cloud == "azure" or cloud == "all":
-            azure.disconnect()
+            await azure.disconnect()
         if cloud == "gcp" or cloud == "all":
             gcp.disconnect()
 
@@ -423,4 +427,4 @@ def main(args):
 
 if __name__ == "__main__":
     args = init_arg_parser().parse_args()
-    main(args)
+    asyncio.run(main(args))
